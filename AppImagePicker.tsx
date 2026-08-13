@@ -10,9 +10,11 @@ export default function App() {
   const imageSize = (width - 50) / 3;
 
   const pickImage = async () => { //Open phone's gallery
-    const result = await ImagePicker.launchImageLibraryAsync({ //Wait until finish selecting in gallery then continue
+    const result = await ImagePicker.launchImageLibraryAsync({
+      //Wait until finish selecting in gallery then continue
       mediaTypes: ['images'],
       allowsMultipleSelection: true,
+      selectionLimit: 30,
       allowsEditing: false,
       quality: 1,
     });
@@ -21,6 +23,7 @@ export default function App() {
 
     if (!result.canceled) {
       setImages(result.assets.map((asset) => asset.uri));
+      //find uri of selected assets then 
     }
   };
 
