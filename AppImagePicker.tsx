@@ -1,55 +1,71 @@
-import * as ImagePicker from 'expo-image-picker';
-import {Button, Image, View, StyleSheet, useWindowDimensions,} from 'react-native';
-import { useState } from 'react';
+import {
+  View,
+  Text,
+  Image,
+  StyleSheet,
+  useWindowDimensions,
+  FlatList,
+  Alert,
+} from 'react-native';
+
+import * as MediaLibrary from 'expo-media-library';
+import { useEffect, useState } from 'react';
 
 export default function App() {
   const { width } = useWindowDimensions();
 
   const [images, setImages] = useState<string[]>([]);
 
-  const imageSize = (width - 50) / 3;
+  const imageSize = (width - 40) / 3;
 
-  const pickImage = async () => { //Open phone's gallery
-    const result = await ImagePicker.launchImageLibraryAsync({
-      //Wait until finish selecting in gallery then continue
-      mediaTypes: ['images'],
-      allowsMultipleSelection: true,
-      selectionLimit: 30,
-      allowsEditing: false,
-      quality: 1,
+  useEffect(() => {
+    loadImages();
+  }, []);
+
+  const loadImages = async () => {
+    // Ask for permission
+    const permission = await MediaLibrary.requestPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert(
+        'Permission required',
+        'Please allow access to your photos.'
+      );
+      return;
+    }
+
+    // Get photos from the phone
+    const result = await MediaLibrary.getAssetsAsync({
+      mediaType: 'photo',
+      first: 100,
+      sortBy: [MediaLibrary.SortBy.creationTime],
     });
 
-    console.log('Picker result:', result);
+    // Get the URI of every photo
+    const uris = result.assets.map((asset) => asset.uri);
 
-    if (!result.canceled) {
-      setImages(result.assets.map((asset) => asset.uri));
-      //find uri of selected assets then 
-    }
+    setImages(uris);
   };
 
   return (
     <View style={styles.container}>
+      <Text style={styles.title}>Gallery</Text>
 
-      <View style={styles.button}>
-        <Button
-          title="CHOOSE IMAGE"
-          onPress={pickImage}
-        />
-      </View>
-
-      <View style={styles.imageContainer}>
-        {images.map((image, index) => (
+      <FlatList
+        data={images}
+        numColumns={3}
+        keyExtractor={(item, index) => `${item}-${index}`}
+        renderItem={({ item }) => (
           <Image
-            key={index}
-            source={{ uri: image }}
+            source={{ uri: item }}
             style={{
               width: imageSize,
               height: imageSize,
+              margin: 5,
             }}
           />
-        ))}
-      </View>
-
+        )}
+      />
     </View>
   );
 }
@@ -57,16 +73,12 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    padding: 10,
   },
 
-  button: {
-    marginTop: 20,
-    marginHorizontal: 20,
-  },
-
-  imageContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    margin: 20,
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 10,
   },
 });
