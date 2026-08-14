@@ -23,7 +23,7 @@ export default function App() {
   }, []);
 
   const loadImages = async () => {
-    // Ask for permission
+    // Request/check permission every time the app starts
     const permission = await MediaLibrary.requestPermissionsAsync();
 
     if (!permission.granted) {
@@ -34,14 +34,13 @@ export default function App() {
       return;
     }
 
-    // Get photos from the phone
+    // Permission was granted, so load the photos
     const result = await MediaLibrary.getAssetsAsync({
       mediaType: 'photo',
       first: 100,
       sortBy: [MediaLibrary.SortBy.creationTime],
     });
 
-    // Get the URI of every photo
     const uris = result.assets.map((asset) => asset.uri);
 
     setImages(uris);
