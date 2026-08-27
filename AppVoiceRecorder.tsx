@@ -198,11 +198,11 @@ export default function App() {
       {/* Recording status */}
 
       <Text style={styles.status}>
-        {recorderState.isRecording
-          ? 'Recording...'
-          : recordingUri
-          ? 'Recording complete'
-          : 'Ready to record'}
+        {recorderState.isRecording //if(recordState.isRecording)
+          ? 'Recording...' //true
+          : recordingUri //false -> else if(recordingURI)
+          ? 'Recording complete' //true
+          : 'Ready to record'} {/*false*/}
       </Text>
 
       {/* Record button */}
