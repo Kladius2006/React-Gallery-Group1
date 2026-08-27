@@ -21,11 +21,12 @@ export default function App() {
   // RECORDER
   // --------------------------------------------------
 
-  const recorder = useAudioRecorder(
+  const recorder = useAudioRecorder( //allow us to use recorder.record() or recorder.stop()
     RecordingPresets.HIGH_QUALITY
   );
 
-  const recorderState = useAudioRecorderState(recorder);
+  const recorderState = useAudioRecorderState(recorder); //allow recorderState.isRecording (true or false) or
+  //recorderState.durationMillis to monitor recording duration
 
   // --------------------------------------------------
   // RECORDING URI
@@ -34,24 +35,26 @@ export default function App() {
   const [recordingUri, setRecordingUri] = useState<string | null>(
     null
   );
+  //update current audio URI as string or null , initially null (no array for saved audios yet, only replace current)
 
   // --------------------------------------------------
   // PLAYER
   // --------------------------------------------------
 
   const player = useAudioPlayer(recordingUri);
+  //play saved current URI with AudioPlayer
 
   // --------------------------------------------------
   // REQUEST MICROPHONE PERMISSION
   // --------------------------------------------------
 
-  useEffect(() => {
+  useEffect(() => { //runs when app starts
     async function setupAudio() {
       try {
         const permission =
-          await AudioModule.requestRecordingPermissionsAsync();
+          await AudioModule.requestRecordingPermissionsAsync(); //try checking for recording permission
 
-        if (!permission.granted) {
+        if (!permission.granted) { //if not already granted then ask for permission
           Alert.alert(
             'Microphone Permission',
             'Please allow microphone access to record audio.'
@@ -59,7 +62,7 @@ export default function App() {
           return;
         }
 
-        await setAudioModeAsync({
+        await setAudioModeAsync({ //audio configuration
           allowsRecording: true,
           playsInSilentMode: true,
         });
@@ -68,8 +71,8 @@ export default function App() {
       }
     }
 
-    setupAudio();
-  }, []);
+    setupAudio(); //setup Audio with said configuration
+  }, []); // [] at the end means run when something in [] changes, in this case, nothing
 
   // --------------------------------------------------
   // START RECORDING
@@ -80,7 +83,7 @@ export default function App() {
       // Remove the previous recording reference
       setRecordingUri(null);
 
-      await recorder.prepareToRecordAsync();
+      await recorder.prepareToRecordAsync(); //prepare microphone, configure recorder
 
       recorder.record();
 
@@ -153,9 +156,10 @@ export default function App() {
       console.log('Pause error:', error);
     }
   };
+  //pressing play, then pause, then play again will start over playing process from 0 due to seekTo(0)
 
   // --------------------------------------------------
-  // FORMAT TIME
+  // FORMAT TIME (i.e. from 12500ms to 0:12)
   // --------------------------------------------------
 
   const formatTime = (milliseconds: number) => {
@@ -171,7 +175,7 @@ export default function App() {
 
     return `${minutes}:${seconds
       .toString()
-      .padStart(2, '0')}`;
+      .padStart(2, '0')}`; //seconds should be 2 characters long, if variable has one, fill the front with 0
   };
 
   // --------------------------------------------------
@@ -188,7 +192,7 @@ export default function App() {
       {/* Recording time */}
 
       <Text style={styles.timer}>
-        {formatTime(recorderState.durationMillis)}
+        {formatTime(recorderState.durationMillis)} {/* store active recorder duration then format into m:ss format*/}
       </Text>
 
       {/* Recording status */}
