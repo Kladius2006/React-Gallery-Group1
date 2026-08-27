@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "expo": "~54.0.35",
+    "expo-audio": "~1.1.1",
     "expo-camera": "~17.0.10",
     "expo-dev-client": "~6.0.21",
     "expo-image-picker": "~17.0.11",
