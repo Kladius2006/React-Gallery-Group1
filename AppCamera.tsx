@@ -1,744 +1,559 @@
-import React, { useEffect, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
-  Alert,
-  Modal,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
+  TouchableOpacity,
+  Image,
+  Button,
+  Alert,
 } from 'react-native';
 
-import {
-  AudioModule,
-  RecordingPresets,
-  setAudioModeAsync,
-  useAudioPlayer,
-  useAudioRecorder,
-  useAudioRecorderState,
-} from 'expo-audio';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as MediaLibrary from 'expo-media-library';
+import { Accelerometer } from 'expo-sensors';
+import Slider from '@react-native-community/slider';
+import { Picker } from '@react-native-picker/picker';
 
 export default function App() {
-  // --------------------------------------------------
-  // AUDIO QUALITY
-  // --------------------------------------------------
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [facing, setFacing] = useState<'back' | 'front'>('back');
 
-  const [audioQuality, setAudioQuality] = useState<
-    'HIGH_QUALITY' | 'LOW_QUALITY'
-  >('HIGH_QUALITY');
+  // Countdown settings
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [countdownTime, setCountdownTime] = useState<number>(3);
+  const [isCounting, setIsCounting] = useState<boolean>(false);
 
-  const [settingsVisible, setSettingsVisible] = useState(false);
+  // Camera
+  const cameraRef = useRef<CameraView>(null);
+  const [cameraPermission, requestCameraPermission] =
+    useCameraPermissions();
 
-  const [dropdownVisible, setDropdownVisible] = useState(false);
+  // Settings screen
+  const [Option, setOption] = useState<boolean>(false);
 
-  // Change the actual RecordingOptions based on selected quality
-  const recordingPreset =
-    audioQuality === 'HIGH_QUALITY'
-      ? RecordingPresets.HIGH_QUALITY
-      : RecordingPresets.LOW_QUALITY;
+  // Shake sensitivity
+  const [shakeThreshold, setShakeThreshold] =
+    useState<number>(2.5);
 
-  // --------------------------------------------------
-  // RECORDER
-  // --------------------------------------------------
+  // Image quality
+  // 0.3 = 30%
+  // 0.6 = 60%
+  // 0.8 = 80%
+  // 1.0 = 100%
+  const [imageQuality, setImageQuality] =
+    useState<number>(0.8);
 
-  const recorder = useAudioRecorder(
-    recordingPreset
-  );
-
-  const recorderState = useAudioRecorderState(
-    recorder
-  );
-
-  // --------------------------------------------------
-  // RECORDING URI
-  // --------------------------------------------------
-
-  const [recordingUri, setRecordingUri] = useState<
-    string | null
-  >(null);
-
-  // --------------------------------------------------
-  // PLAYER
-  // --------------------------------------------------
-
-  const player = useAudioPlayer(recordingUri);
-
-  // --------------------------------------------------
-  // REQUEST MICROPHONE PERMISSION
-  // --------------------------------------------------
+  // ============================================
+  // SHAKE DETECTION
+  // ============================================
 
   useEffect(() => {
-    async function setupAudio() {
-      try {
-        const permission =
-          await AudioModule.requestRecordingPermissionsAsync();
+    let subscription: any;
 
-        if (!permission.granted) {
-          Alert.alert(
-            'Microphone Permission',
-            'Please allow microphone access to record audio.'
-          );
-          return;
+    if (!photoUri && !isCounting && !Option) {
+      Accelerometer.setUpdateInterval(150);
+
+      subscription = Accelerometer.addListener(({ x, y, z }) => {
+        const acceleration = Math.sqrt(
+          x * x + y * y + z * z
+        );
+
+        if (acceleration > shakeThreshold) {
+          startCountdown();
         }
+      });
+    }
 
-        await setAudioModeAsync({
-          allowsRecording: true,
-          playsInSilentMode: true,
-        });
+    return () => {
+      if (subscription) {
+        subscription.remove();
+      }
+    };
+  }, [
+    photoUri,
+    isCounting,
+    Option,
+    shakeThreshold,
+  ]);
+
+  // ============================================
+  // START COUNTDOWN
+  // ============================================
+
+  const startCountdown = () => {
+    setIsCounting(true);
+    setCountdown(countdownTime);
+  };
+
+  // ============================================
+  // COUNTDOWN TIMER
+  // ============================================
+
+  useEffect(() => {
+    if (countdown !== null && countdown > 0) {
+      const timer = setTimeout(
+        () => setCountdown(countdown - 1),
+        1000
+      );
+
+      return () => clearTimeout(timer);
+    } else if (countdown === 0) {
+      setCountdown(null);
+      setIsCounting(false);
+      takePicture();
+    }
+  }, [countdown]);
+
+  // ============================================
+  // CAMERA PERMISSION
+  // ============================================
+
+  if (!cameraPermission) {
+    return <View />;
+  }
+
+  if (!cameraPermission.granted) {
+    return (
+      <View style={styles.center}>
+        <Text
+          style={{
+            textAlign: 'center',
+            marginBottom: 20,
+          }}
+        >
+          แอปต้องการสิทธิ์ในการใช้งานกล้อง
+        </Text>
+
+        <Button
+          onPress={requestCameraPermission}
+          title="อนุญาตให้เข้าถึงกล้อง"
+        />
+      </View>
+    );
+  }
+
+  // ============================================
+  // TAKE PICTURE
+  // ============================================
+
+  const takePicture = async () => {
+    if (cameraRef.current) {
+      try {
+        const photo =
+          await cameraRef.current.takePictureAsync({
+            quality: imageQuality,
+            shutterSound: false,
+          });
+
+        if (photo?.uri) {
+          setPhotoUri(photo.uri);
+        }
       } catch (error) {
-        console.log('Audio setup error:', error);
+        console.log(
+          'Failed to take picture:',
+          error
+        );
+
+        Alert.alert(
+          'เกิดข้อผิดพลาด',
+          'ไม่สามารถถ่ายรูปได้'
+        );
       }
     }
-
-    setupAudio();
-  }, []);
-
-  // --------------------------------------------------
-  // START RECORDING
-  // --------------------------------------------------
-
-  const startRecording = async () => {
-    try {
-      // Remove the previous recording reference
-      setRecordingUri(null);
-
-      await recorder.prepareToRecordAsync();
-
-      recorder.record();
-
-      console.log('Recording started');
-      console.log('Quality:', audioQuality);
-    } catch (error) {
-      console.log('Failed to start recording:', error);
-
-      Alert.alert(
-        'Error',
-        'Could not start recording.'
-      );
-    }
   };
 
-  // --------------------------------------------------
-  // STOP RECORDING
-  // --------------------------------------------------
+  // ============================================
+  // SAVE PICTURE
+  // ============================================
 
-  const stopRecording = async () => {
+  const savePicture = async () => {
+    if (!photoUri) return;
+
     try {
-      await recorder.stop();
+      let permission =
+        await MediaLibrary.getPermissionsAsync(true);
 
-      const uri = recorder.uri;
-
-      console.log('Recording stopped');
-      console.log('Recording URI:', uri);
-
-      if (uri) {
-        setRecordingUri(uri);
+      if (permission.status !== 'granted') {
+        permission =
+          await MediaLibrary.requestPermissionsAsync(true);
       }
-    } catch (error) {
-      console.log('Failed to stop recording:', error);
 
+      if (permission.status !== 'granted') {
+        Alert.alert(
+          'แจ้งเตือน',
+          'กรุณาเปิดสิทธิ์เซฟรูปลงเครื่องในการตั้งค่าโทรศัพท์'
+        );
+
+        return;
+      }
+
+      await MediaLibrary.saveToLibraryAsync(photoUri);
+
+      Alert.alert('', 'Saved!');
+    } catch (error) {
       Alert.alert(
-        'Error',
-        'Could not stop recording.'
+        'เกิดข้อผิดพลาด',
+        'ไม่สามารถบันทึกไฟล์ได้'
       );
+
+      console.log(error);
     }
   };
 
-  // --------------------------------------------------
-  // PLAY RECORDING
-  // --------------------------------------------------
+  // ============================================
+  // SWITCH CAMERA
+  // ============================================
 
-  const playRecording = () => {
-    if (!recordingUri) {
-      Alert.alert(
-        'No Recording',
-        'Record something first.'
-      );
-      return;
-    }
-
-    try {
-      player.seekTo(0);
-      player.play();
-    } catch (error) {
-      console.log('Playback error:', error);
-    }
-  };
-
-  // --------------------------------------------------
-  // PAUSE RECORDING PLAYBACK
-  // --------------------------------------------------
-
-  const pauseRecording = () => {
-    try {
-      player.pause();
-    } catch (error) {
-      console.log('Pause error:', error);
-    }
-  };
-
-  // --------------------------------------------------
-  // FORMAT TIME
-  // --------------------------------------------------
-
-  const formatTime = (milliseconds: number) => {
-    const totalSeconds = Math.floor(
-      milliseconds / 1000
+  const toggleCameraFacing = () => {
+    setFacing(current =>
+      current === 'back' ? 'front' : 'back'
     );
+  };
 
-    const minutes = Math.floor(
-      totalSeconds / 60
+  // ============================================
+  // PHOTO PREVIEW
+  // ============================================
+
+  if (photoUri) {
+    return (
+      <View style={styles.center}>
+        <Image
+          source={{ uri: photoUri }}
+          style={styles.preview}
+        />
+
+        <View style={styles.previewButtonContainer}>
+          <Button
+            title="Back"
+            onPress={() => setPhotoUri(null)}
+            color="red"
+          />
+
+          <View style={{ width: 20 }} />
+
+          <Button
+            title="Save"
+            onPress={savePicture}
+            color="green"
+          />
+        </View>
+      </View>
     );
+  }
 
-    const seconds = totalSeconds % 60;
+  // ============================================
+  // SETTINGS SCREEN
+  // ============================================
 
-    return `${minutes}:${seconds
-      .toString()
-      .padStart(2, '0')}`;
-  };
+  if (Option) {
+    return (
+      <View style={styles.center}>
 
-  // --------------------------------------------------
-  // CHANGE AUDIO QUALITY
-  // --------------------------------------------------
+        {/* IMAGE QUALITY */}
 
-  const selectAudioQuality = (
-    quality: 'HIGH_QUALITY' | 'LOW_QUALITY'
-  ) => {
-    // Don't allow changing settings while recording
-    if (recorderState.isRecording) {
-      Alert.alert(
-        'Currently Recording',
-        'Stop the current recording before changing audio quality.'
-      );
-      return;
-    }
+        <Text style={styles.settingTitle}>
+          Image Quality
+        </Text>
 
-    setAudioQuality(quality);
-    setDropdownVisible(false);
-  };
+        <Text style={styles.settingValue}>
+          Current quality:{' '}
+          {imageQuality === 0.3
+            ? 'Low (30%)'
+            : imageQuality === 0.6
+            ? 'Medium (60%)'
+            : imageQuality === 0.8
+            ? 'High (80%)'
+            : 'Maximum (100%)'}
+        </Text>
 
-  // --------------------------------------------------
-  // UI
-  // --------------------------------------------------
+        <View style={styles.pickerContainer}>
+          <Picker
+            selectedValue={imageQuality}
+            onValueChange={(value) =>
+              setImageQuality(value)
+            }
+            style={styles.picker}
+          >
+            <Picker.Item
+              label="Low (30%)"
+              value={0.3}
+            />
+
+            <Picker.Item
+              label="Medium (60%)"
+              value={0.6}
+            />
+
+            <Picker.Item
+              label="High (80%)"
+              value={0.8}
+            />
+
+            <Picker.Item
+              label="Maximum (100%)"
+              value={1.0}
+            />
+          </Picker>
+        </View>
+
+        {/* SHAKE SETTINGS */}
+
+        <Text style={styles.settingTitle}>
+          ตั้งค่าการเขย่า
+        </Text>
+
+        <Text style={styles.settingValue}>
+          ความไวปัจจุบัน:{' '}
+          {shakeThreshold.toFixed(1)}
+        </Text>
+
+        <Slider
+          style={styles.slider}
+          minimumValue={2.5}
+          maximumValue={20.0}
+          step={0.1}
+          value={shakeThreshold}
+          onValueChange={(val) =>
+            setShakeThreshold(val)
+          }
+          minimumTrackTintColor="#1EB1FC"
+          maximumTrackTintColor="#d3d3d3"
+          thumbTintColor="#1EB1FC"
+        />
+
+        {/* COUNTDOWN SETTINGS */}
+
+        <Text style={styles.settingTitle}>
+          Countdown time
+        </Text>
+
+        <Text style={styles.settingValue}>
+          เวลาปัจจุบัน: {countdownTime} วินาที
+        </Text>
+
+        <Slider
+          style={styles.slider}
+          minimumValue={3}
+          maximumValue={10}
+          step={1}
+          value={countdownTime}
+          onValueChange={(val) =>
+            setCountdownTime(val)
+          }
+          minimumTrackTintColor="#1EB1FC"
+          maximumTrackTintColor="#d3d3d3"
+          thumbTintColor="#1EB1FC"
+        />
+
+        {/* BACK BUTTON */}
+
+        <Button
+          title="Back"
+          onPress={() => setOption(false)}
+          color="red"
+        />
+
+      </View>
+    );
+  }
+
+  // ============================================
+  // CAMERA SCREEN
+  // ============================================
 
   return (
     <View style={styles.container}>
-
-      {/* ------------------------------------------------
-          SETTINGS BUTTON
-      ------------------------------------------------ */}
-
-      <TouchableOpacity
-        style={styles.settingsButton}
-        onPress={() => setSettingsVisible(true)}
+      <CameraView
+        style={StyleSheet.absoluteFillObject}
+        facing={facing}
+        ref={cameraRef}
       >
-        <Text style={styles.settingsButtonText}>
-          ⚙
-        </Text>
-      </TouchableOpacity>
 
-      {/* ------------------------------------------------
-          TITLE
-      ------------------------------------------------ */}
+        {/* COUNTDOWN DISPLAY */}
 
-      <Text style={styles.title}>
-        Voice Recorder
-      </Text>
-
-      {/* ------------------------------------------------
-          RECORDING TIME
-      ------------------------------------------------ */}
-
-      <Text style={styles.timer}>
-        {formatTime(
-          recorderState.durationMillis
-        )}
-      </Text>
-
-      {/* ------------------------------------------------
-          RECORDING STATUS
-      ------------------------------------------------ */}
-
-      <Text style={styles.status}>
-        {recorderState.isRecording
-          ? 'Recording...'
-          : recordingUri
-          ? 'Recording complete'
-          : 'Ready to record'}
-      </Text>
-
-      {/* ------------------------------------------------
-          RECORD BUTTON
-      ------------------------------------------------ */}
-
-      <TouchableOpacity
-        style={[
-          styles.recordButton,
-          recorderState.isRecording &&
-            styles.stopButton,
-        ]}
-        onPress={
-          recorderState.isRecording
-            ? stopRecording
-            : startRecording
-        }
-      >
-        <Text style={styles.buttonText}>
-          {recorderState.isRecording
-            ? 'STOP'
-            : 'RECORD'}
-        </Text>
-      </TouchableOpacity>
-
-      {/* ------------------------------------------------
-          PLAYBACK BUTTONS
-      ------------------------------------------------ */}
-
-      {recordingUri && (
-        <View style={styles.playbackContainer}>
-
-          <TouchableOpacity
-            style={styles.playButton}
-            onPress={playRecording}
-          >
-            <Text style={styles.buttonText}>
-              ▶ PLAY
+        {isCounting && countdown !== null && (
+          <View style={styles.countdownContainer}>
+            <Text style={styles.countdownText}>
+              {countdown}
             </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.pauseButton}
-            onPress={pauseRecording}
-          >
-            <Text style={styles.buttonText}>
-              ⏸ PAUSE
-            </Text>
-          </TouchableOpacity>
-
-        </View>
-      )}
-
-      {/* ------------------------------------------------
-          RECORDING INFORMATION
-      ------------------------------------------------ */}
-
-      {recordingUri && (
-        <View style={styles.infoContainer}>
-
-          <Text style={styles.infoTitle}>
-            Recording saved
-          </Text>
-
-          <Text
-            style={styles.uri}
-            numberOfLines={3}
-          >
-            {recordingUri}
-          </Text>
-
-        </View>
-      )}
-
-      {/* ==================================================
-          SETTINGS MODAL
-      ================================================== */}
-
-      <Modal
-        visible={settingsVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() =>
-          setSettingsVisible(false)
-        }
-      >
-        <View style={styles.modalOverlay}>
-
-          <View style={styles.settingsModal}>
-
-            {/* Modal title */}
-
-            <Text style={styles.settingsTitle}>
-              Settings
-            </Text>
-
-            {/* Audio quality label */}
-
-            <Text style={styles.settingLabel}>
-              Audio Record Quality
-            </Text>
-
-            {/* Dropdown */}
-
-            <TouchableOpacity
-              style={styles.dropdown}
-              onPress={() =>
-                setDropdownVisible(
-                  !dropdownVisible
-                )
-              }
-            >
-              <Text style={styles.dropdownText}>
-                {audioQuality === 'HIGH_QUALITY'
-                  ? 'High Quality'
-                  : 'Low Quality'}
-              </Text>
-
-              <Text style={styles.dropdownArrow}>
-                {dropdownVisible ? '▲' : '▼'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Dropdown options */}
-
-            {dropdownVisible && (
-              <View style={styles.dropdownOptions}>
-
-                <TouchableOpacity
-                  style={[
-                    styles.dropdownOption,
-                    audioQuality ===
-                      'HIGH_QUALITY' &&
-                      styles.selectedOption,
-                  ]}
-                  onPress={() =>
-                    selectAudioQuality(
-                      'HIGH_QUALITY'
-                    )
-                  }
-                >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      audioQuality ===
-                        'HIGH_QUALITY' &&
-                        styles.selectedOptionText,
-                    ]}
-                  >
-                    High Quality
-                  </Text>
-
-                  {audioQuality ===
-                    'HIGH_QUALITY' && (
-                    <Text style={styles.checkmark}>
-                      ✓
-                    </Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.dropdownOption,
-                    audioQuality ===
-                      'LOW_QUALITY' &&
-                      styles.selectedOption,
-                  ]}
-                  onPress={() =>
-                    selectAudioQuality(
-                      'LOW_QUALITY'
-                    )
-                  }
-                >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      audioQuality ===
-                        'LOW_QUALITY' &&
-                        styles.selectedOptionText,
-                    ]}
-                  >
-                    Low Quality
-                  </Text>
-
-                  {audioQuality ===
-                    'LOW_QUALITY' && (
-                    <Text style={styles.checkmark}>
-                      ✓
-                    </Text>
-                  )}
-                </TouchableOpacity>
-
-              </View>
-            )}
-
-            {/* Close button */}
-
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => {
-                setDropdownVisible(false);
-                setSettingsVisible(false);
-              }}
-            >
-              <Text style={styles.buttonText}>
-                CLOSE
-              </Text>
-            </TouchableOpacity>
-
           </View>
+        )}
+
+        {/* CAMERA BUTTONS */}
+
+        <View style={styles.buttonContainer}>
+
+          {/* SWITCH CAMERA */}
+
+          <TouchableOpacity
+            style={styles.switchCameraBtn}
+            onPress={toggleCameraFacing}
+          >
+            <Text style={styles.switchText}>
+              Camera
+            </Text>
+          </TouchableOpacity>
+
+          {/* TAKE PHOTO */}
+
+          <TouchableOpacity
+            style={[
+              styles.captureBtn,
+              isCounting && { opacity: 0.5 },
+            ]}
+            onPress={
+              isCounting ? undefined : takePicture
+            }
+            disabled={isCounting}
+          />
+
+          {/* SETTINGS */}
+
+          <TouchableOpacity
+            style={styles.switchCameraBtn}
+            onPress={() => setOption(true)}
+          >
+            <Text style={styles.switchText}>
+              option
+            </Text>
+          </TouchableOpacity>
 
         </View>
-      </Modal>
-
+      </CameraView>
     </View>
   );
 }
 
-// ======================================================
+// ============================================
 // STYLES
-// ======================================================
+// ============================================
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#000',
+  },
+
+  center: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#fff',
     padding: 20,
   },
 
-  // --------------------------------------------------
-  // SETTINGS BUTTON
-  // --------------------------------------------------
+  preview: {
+    width: 300,
+    height: 400,
+    borderRadius: 10,
+    marginBottom: 20,
+  },
 
-  settingsButton: {
+  previewButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+
+  // ============================================
+  // CAMERA BUTTONS
+  // ============================================
+
+  buttonContainer: {
     position: 'absolute',
-    top: 50,
-    right: 20,
+    bottom: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
 
+  captureBtn: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#fff',
+    borderWidth: 4,
+    borderColor: '#ccc',
+    marginHorizontal: 20,
+  },
+
+  switchCameraBtn: {
     width: 50,
     height: 50,
-
     borderRadius: 25,
-    backgroundColor: '#333',
-
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderWidth: 2,
+    borderColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
-
-    elevation: 5,
   },
 
-  settingsButtonText: {
-    color: 'white',
-    fontSize: 28,
+  switchText: {
+    color: '#fff',
+    fontSize: 12,
   },
 
-  // --------------------------------------------------
-  // MAIN UI
-  // --------------------------------------------------
+  // ============================================
+  // COUNTDOWN
+  // ============================================
 
-  title: {
-    fontSize: 32,
+  countdownContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  countdownText: {
+    fontSize: 120,
     fontWeight: 'bold',
-    marginBottom: 30,
+    color: '#ffffff',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: {
+      width: -1,
+      height: 1,
+    },
+    textShadowRadius: 10,
   },
 
-  timer: {
-    fontSize: 48,
+  // ============================================
+  // SETTINGS
+  // ============================================
+
+  settingTitle: {
+    fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 10,
   },
 
-  status: {
+  settingValue: {
     fontSize: 18,
-    color: '#666',
+    marginBottom: 20,
+  },
+
+  slider: {
+    width: 250,
+    height: 40,
     marginBottom: 40,
   },
 
-  recordButton: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
+  // ============================================
+  // QUALITY DROPDOWN
+  // ============================================
 
-    backgroundColor: 'red',
-
-    justifyContent: 'center',
-    alignItems: 'center',
-
-    elevation: 5,
-  },
-
-  stopButton: {
-    backgroundColor: '#333',
-  },
-
-  buttonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-
-  // --------------------------------------------------
-  // PLAYBACK
-  // --------------------------------------------------
-
-  playbackContainer: {
-    flexDirection: 'row',
-    marginTop: 40,
-    gap: 15,
-  },
-
-  playButton: {
-    backgroundColor: 'green',
-    paddingVertical: 15,
-    paddingHorizontal: 25,
-    borderRadius: 10,
-  },
-
-  pauseButton: {
-    backgroundColor: '#555',
-    paddingVertical: 15,
-    paddingHorizontal: 25,
-    borderRadius: 10,
-  },
-
-  // --------------------------------------------------
-  // RECORDING INFORMATION
-  // --------------------------------------------------
-
-  infoContainer: {
-    marginTop: 40,
-    width: '100%',
-    padding: 15,
-
-    backgroundColor: 'white',
-    borderRadius: 10,
-  },
-
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-
-  uri: {
-    fontSize: 12,
-    color: '#666',
-  },
-
-  // ==================================================
-  // SETTINGS MODAL
-  // ==================================================
-
-  modalOverlay: {
-    flex: 1,
-
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  settingsModal: {
-    width: '85%',
-
-    backgroundColor: 'white',
-
-    borderRadius: 15,
-
-    padding: 25,
-
-    elevation: 10,
-  },
-
-  settingsTitle: {
-    fontSize: 26,
-    fontWeight: 'bold',
-
-    marginBottom: 25,
-  },
-
-  settingLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-
-    marginBottom: 10,
-  },
-
-  // --------------------------------------------------
-  // DROPDOWN
-  // --------------------------------------------------
-
-  dropdown: {
-    width: '100%',
-    height: 50,
-
+  pickerContainer: {
+    width: 250,
+    height: 55,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#aaa',
     borderRadius: 8,
-
-    paddingHorizontal: 15,
-
-    flexDirection: 'row',
-
-    alignItems: 'center',
-    justifyContent: 'space-between',
-
-    backgroundColor: '#fafafa',
-  },
-
-  dropdownText: {
-    fontSize: 16,
-    color: '#333',
-  },
-
-  dropdownArrow: {
-    fontSize: 14,
-    color: '#555',
-  },
-
-  dropdownOptions: {
-    marginTop: 5,
-
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-
+    marginBottom: 40,
+    justifyContent: 'center',
     overflow: 'hidden',
-
-    backgroundColor: 'white',
   },
 
-  dropdownOption: {
-    height: 50,
-
-    paddingHorizontal: 15,
-
-    flexDirection: 'row',
-
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-
-  selectedOption: {
-    backgroundColor: '#eeeeee',
-  },
-
-  optionText: {
-    fontSize: 16,
-    color: '#333',
-  },
-
-  selectedOptionText: {
-    fontWeight: 'bold',
-  },
-
-  checkmark: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-
-  // --------------------------------------------------
-  // CLOSE BUTTON
-  // --------------------------------------------------
-
-  closeButton: {
-    marginTop: 25,
-
-    backgroundColor: '#333',
-
-    paddingVertical: 14,
-
-    borderRadius: 8,
-
-    alignItems: 'center',
+  picker: {
+    width: '100%',
+    height: 55,
   },
 });

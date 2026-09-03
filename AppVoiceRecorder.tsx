@@ -1,95 +1,157 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Alert,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-
+import { Alert, Modal, Text, TouchableOpacity, View,} from 'react-native';
+import Slider from '@react-native-community/slider';
 import {
   AudioModule,
   RecordingPresets,
   setAudioModeAsync,
   useAudioPlayer,
+  useAudioPlayerStatus,
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
+import styles from './RecorderStyles';
 
 export default function App() {
-  // --------------------------------------------------
+  // ==================================================
+  // AUDIO QUALITY
+  // ==================================================
+
+  const [audioQuality, setAudioQuality] = useState<
+    'HIGH_QUALITY' | 'LOW_QUALITY'
+  >('HIGH_QUALITY');
+
+  const [settingsVisible, setSettingsVisible] = useState(false);
+
+  const [dropdownVisible, setDropdownVisible] = useState(false);
+
+  // Change the actual RecordingOptions
+  // based on selected quality
+  const recordingPreset =
+    audioQuality === 'HIGH_QUALITY'
+      ? RecordingPresets.HIGH_QUALITY
+      : RecordingPresets.LOW_QUALITY;
+
+  // ==================================================
   // RECORDER
-  // --------------------------------------------------
+  // ==================================================
 
-  const recorder = useAudioRecorder( //allow us to use recorder.record() or recorder.stop()
-    RecordingPresets.HIGH_QUALITY
+  const recorder = useAudioRecorder(
+    recordingPreset
   );
 
-  const recorderState = useAudioRecorderState(recorder); //allow recorderState.isRecording (true or false) or
-  //recorderState.durationMillis to monitor recording duration
+  const recorderState = useAudioRecorderState(
+    recorder
+  );
 
-  // --------------------------------------------------
+  // ==================================================
   // RECORDING URI
-  // --------------------------------------------------
+  // ==================================================
 
-  const [recordingUri, setRecordingUri] = useState<string | null>(
-    null
-  );
-  //update current audio URI as string or null , initially null (no array for saved audios yet, only replace current)
+  const [recordingUri, setRecordingUri] = useState<
+    string | null
+  >(null);
 
-  // --------------------------------------------------
-  // PLAYER
-  // --------------------------------------------------
+  // ==================================================
+  // AUDIO PLAYER
+  // ==================================================
 
   const player = useAudioPlayer(recordingUri);
-  //play saved current URI with AudioPlayer
 
-  // --------------------------------------------------
+  // Get real-time playback information
+  //
+  // currentTime = current playback position in seconds
+  // duration    = total audio duration in seconds
+  //
+  const playerStatus = useAudioPlayerStatus(player);
+
+  // ==================================================
+  // SLIDER
+  // ==================================================
+
+  // Value displayed while the user is dragging
+  // the slider.
+  const [sliderValue, setSliderValue] = useState(0);
+
+  // Used to determine whether the user is
+  // currently dragging the slider.
+  const [isSliding, setIsSliding] = useState(false);
+
+  // ==================================================
   // REQUEST MICROPHONE PERMISSION
-  // --------------------------------------------------
+  // ==================================================
 
-  useEffect(() => { //runs when app starts
+  useEffect(() => {
     async function setupAudio() {
       try {
         const permission =
-          await AudioModule.requestRecordingPermissionsAsync(); //try checking for recording permission
+          await AudioModule.requestRecordingPermissionsAsync();
 
-        if (!permission.granted) { //if not already granted then ask for permission
+        if (!permission.granted) {
           Alert.alert(
             'Microphone Permission',
             'Please allow microphone access to record audio.'
           );
+
           return;
         }
 
-        await setAudioModeAsync({ //audio configuration
+        await setAudioModeAsync({
           allowsRecording: true,
           playsInSilentMode: true,
         });
       } catch (error) {
-        console.log('Audio setup error:', error);
+        console.log(
+          'Audio setup error:',
+          error
+        );
       }
     }
 
-    setupAudio(); //setup Audio with said configuration
-  }, []); // [] at the end means run when something in [] changes, in this case, nothing
+    setupAudio();
+  }, []);
 
-  // --------------------------------------------------
+  // ==================================================
+  // KEEP SLIDER SYNCHRONIZED WITH AUDIO
+  // ==================================================
+
+  useEffect(() => {
+    // Don't update the slider while the user
+    // is manually dragging it.
+    if (!isSliding) {
+      setSliderValue(playerStatus.currentTime);
+    }
+  }, [
+    playerStatus.currentTime,
+    isSliding,
+  ]);
+
+  // ==================================================
   // START RECORDING
-  // --------------------------------------------------
+  // ==================================================
 
   const startRecording = async () => {
     try {
-      // Remove the previous recording reference
+      // Remove previous recording
       setRecordingUri(null);
 
-      await recorder.prepareToRecordAsync(); //prepare microphone, configure recorder
+      // Reset slider
+      setSliderValue(0);
+
+      await recorder.prepareToRecordAsync();
 
       recorder.record();
 
       console.log('Recording started');
+      console.log(
+        'Quality:',
+        audioQuality
+      );
     } catch (error) {
-      console.log('Failed to start recording:', error);
+      console.log(
+        'Failed to start recording:',
+        error
+      );
 
       Alert.alert(
         'Error',
@@ -98,9 +160,9 @@ export default function App() {
     }
   };
 
-  // --------------------------------------------------
+  // ==================================================
   // STOP RECORDING
-  // --------------------------------------------------
+  // ==================================================
 
   const stopRecording = async () => {
     try {
@@ -109,13 +171,20 @@ export default function App() {
       const uri = recorder.uri;
 
       console.log('Recording stopped');
-      console.log('Recording URI:', uri);
+      console.log(
+        'Recording URI:',
+        uri
+      );
 
       if (uri) {
         setRecordingUri(uri);
+        setSliderValue(0);
       }
     } catch (error) {
-      console.log('Failed to stop recording:', error);
+      console.log(
+        'Failed to stop recording:',
+        error
+      );
 
       Alert.alert(
         'Error',
@@ -124,9 +193,9 @@ export default function App() {
     }
   };
 
-  // --------------------------------------------------
+  // ==================================================
   // PLAY RECORDING
-  // --------------------------------------------------
+  // ==================================================
 
   const playRecording = () => {
     if (!recordingUri) {
@@ -134,78 +203,207 @@ export default function App() {
         'No Recording',
         'Record something first.'
       );
+
       return;
     }
 
     try {
-      player.seekTo(0);
+      // Play from the current position.
+      //
+      // This means:
+      // - after pressing PAUSE -> resumes
+      // - after moving slider -> continues there
+      //
       player.play();
     } catch (error) {
-      console.log('Playback error:', error);
+      console.log(
+        'Playback error:',
+        error
+      );
     }
   };
 
-  // --------------------------------------------------
+  // ==================================================
+  // RESTART RECORDING PLAYBACK
+  // ==================================================
+
+  const restartRecording = async () => {
+    if (!recordingUri) {
+      return;
+    }
+
+    try {
+      await player.seekTo(0);
+
+      setSliderValue(0);
+
+      player.play();
+    } catch (error) {
+      console.log(
+        'Restart error:',
+        error
+      );
+    }
+  };
+
+  // ==================================================
   // PAUSE RECORDING PLAYBACK
-  // --------------------------------------------------
+  // ==================================================
 
   const pauseRecording = () => {
     try {
       player.pause();
     } catch (error) {
-      console.log('Pause error:', error);
+      console.log(
+        'Pause error:',
+        error
+      );
     }
   };
-  //pressing play, then pause, then play again will start over playing process from 0 due to seekTo(0)
 
-  // --------------------------------------------------
-  // FORMAT TIME (i.e. from 12500ms to 0:12)
-  // --------------------------------------------------
+  // ==================================================
+  // CHANGE PLAYBACK POSITION
+  // ==================================================
 
-  const formatTime = (milliseconds: number) => {
+  const handleSlidingStart = () => {
+    setIsSliding(true);
+  };
+
+  const handleSliderChange = (
+    value: number
+  ) => {
+    setSliderValue(value);
+  };
+
+  const handleSlidingComplete = async (
+    value: number
+  ) => {
+    try {
+      await player.seekTo(value);
+    } catch (error) {
+      console.log(
+        'Seek error:',
+        error
+      );
+    }
+
+    setSliderValue(value);
+    setIsSliding(false);
+  };
+
+  // ==================================================
+  // FORMAT TIME
+  // ==================================================
+
+  // Input is seconds
+  const formatTime = (
+    seconds: number
+  ) => {
+    if (
+      !Number.isFinite(seconds) ||
+      seconds < 0
+    ) {
+      return '0:00';
+    }
+
     const totalSeconds = Math.floor(
-      milliseconds / 1000
+      seconds
     );
 
     const minutes = Math.floor(
       totalSeconds / 60
     );
 
-    const seconds = totalSeconds % 60;
+    const remainingSeconds =
+      totalSeconds % 60;
 
-    return `${minutes}:${seconds
+    return `${minutes}:${remainingSeconds
       .toString()
-      .padStart(2, '0')}`; //seconds should be 2 characters long, if variable has one, fill the front with 0
+      .padStart(2, '0')}`;
   };
 
-  // --------------------------------------------------
+  // ==================================================
+  // CHANGE AUDIO QUALITY
+  // ==================================================
+
+  const selectAudioQuality = (
+    quality:
+      | 'HIGH_QUALITY'
+      | 'LOW_QUALITY'
+  ) => {
+    // Don't allow changing settings
+    // while recording.
+    if (recorderState.isRecording) {
+      Alert.alert(
+        'Currently Recording',
+        'Stop the current recording before changing audio quality.'
+      );
+
+      return;
+    }
+
+    setAudioQuality(quality);
+
+    setDropdownVisible(false);
+  };
+
+  // ==================================================
   // UI
-  // --------------------------------------------------
+  // ==================================================
 
   return (
     <View style={styles.container}>
+
+      {/* =================================================
+          SETTINGS BUTTON
+      ================================================= */}
+
+      <TouchableOpacity
+        style={styles.settingsButton}
+        onPress={() =>
+          setSettingsVisible(true)
+        }
+      >
+        <Text
+          style={styles.settingsButtonText}
+        >
+          ⚙
+        </Text>
+      </TouchableOpacity>
+
+      {/* =================================================
+          TITLE
+      ================================================= */}
 
       <Text style={styles.title}>
         Voice Recorder
       </Text>
 
-      {/* Recording time */}
+      {/* =================================================
+          RECORDING TIME
+      ================================================= */}
 
       <Text style={styles.timer}>
-        {formatTime(recorderState.durationMillis)} {/* store active recorder duration then format into m:ss format*/}
+        {formatTime(
+          recorderState.durationMillis / 1000
+        )}
       </Text>
 
-      {/* Recording status */}
+      {/* =================================================
+          RECORDING STATUS
+      ================================================= */}
 
       <Text style={styles.status}>
-        {recorderState.isRecording //if(recordState.isRecording)
-          ? 'Recording...' //true
-          : recordingUri //false -> else if(recordingURI)
-          ? 'Recording complete' //true
-          : 'Ready to record'} {/*false*/}
+        {recorderState.isRecording
+          ? 'Recording...'
+          : recordingUri
+          ? 'Recording complete'
+          : 'Ready to record'}
       </Text>
 
-      {/* Record button */}
+      {/* =================================================
+          RECORD BUTTON
+      ================================================= */}
 
       <TouchableOpacity
         style={[
@@ -226,38 +424,129 @@ export default function App() {
         </Text>
       </TouchableOpacity>
 
-      {/* Playback buttons */}
+      {/* =================================================
+          PLAYBACK
+      ================================================= */}
 
       {recordingUri && (
-        <View style={styles.playbackContainer}>
+        <View style={styles.playbackSection}>
 
-          <TouchableOpacity
-            style={styles.playButton}
-            onPress={playRecording}
+          {/* ---------------------------------------------
+              TIME DISPLAY
+          --------------------------------------------- */}
+
+          <View
+            style={styles.timeContainer}
           >
-            <Text style={styles.buttonText}>
-              ▶ PLAY
+            <Text style={styles.timeText}>
+              {formatTime(
+                isSliding
+                  ? sliderValue
+                  : playerStatus.currentTime
+              )}
             </Text>
-          </TouchableOpacity>
+
+            <Text style={styles.timeText}>
+              {formatTime(
+                playerStatus.duration
+              )}
+            </Text>
+          </View>
+
+          {/* ---------------------------------------------
+              SLIDER
+          --------------------------------------------- */}
+
+          <Slider
+            style={styles.slider}
+            minimumValue={0}
+            maximumValue={
+              playerStatus.duration || 1
+            }
+            value={sliderValue}
+            minimumTrackTintColor="#333"
+            maximumTrackTintColor="#ccc"
+            thumbTintColor="#333"
+
+            onSlidingStart={
+              handleSlidingStart
+            }
+
+            onValueChange={
+              handleSliderChange
+            }
+
+            onSlidingComplete={
+              handleSlidingComplete
+            }
+          />
+
+          {/* ---------------------------------------------
+              PLAYBACK BUTTONS
+          --------------------------------------------- */}
+
+          <View
+            style={styles.playbackContainer}
+          >
+
+            {/* PLAY */}
+
+            <TouchableOpacity
+              style={styles.playButton}
+              onPress={playRecording}
+            >
+              <Text
+                style={styles.buttonText}
+              >
+                ▶ PLAY
+              </Text>
+            </TouchableOpacity>
+
+            {/* PAUSE */}
+
+            <TouchableOpacity
+              style={styles.pauseButton}
+              onPress={pauseRecording}
+            >
+              <Text
+                style={styles.buttonText}
+              >
+                ⏸ PAUSE
+              </Text>
+            </TouchableOpacity>
+
+          </View>
+
+          {/* ---------------------------------------------
+              RESTART BUTTON
+          --------------------------------------------- */}
 
           <TouchableOpacity
-            style={styles.pauseButton}
-            onPress={pauseRecording}
+            style={styles.restartButton}
+            onPress={restartRecording}
           >
-            <Text style={styles.buttonText}>
-              ⏸ PAUSE
+            <Text
+              style={styles.buttonText}
+            >
+              ↻ RESTART
             </Text>
           </TouchableOpacity>
 
         </View>
       )}
 
-      {/* Recording information */}
+      {/* =================================================
+          RECORDING INFORMATION
+      ================================================= */}
 
       {recordingUri && (
-        <View style={styles.infoContainer}>
+        <View
+          style={styles.infoContainer}
+        >
 
-          <Text style={styles.infoTitle}>
+          <Text
+            style={styles.infoTitle}
+          >
             Recording saved
           </Text>
 
@@ -271,98 +560,195 @@ export default function App() {
         </View>
       )}
 
+      {/* =================================================
+          SETTINGS MODAL
+      ================================================= */}
+
+      <Modal
+        visible={settingsVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() =>
+          setSettingsVisible(false)
+        }
+      >
+
+        <View
+          style={styles.modalOverlay}
+        >
+
+          <View
+            style={styles.settingsModal}
+          >
+
+            {/* -----------------------------------------
+                MODAL TITLE
+            ----------------------------------------- */}
+
+            <Text
+              style={styles.settingsTitle}
+            >
+              Settings
+            </Text>
+
+            {/* -----------------------------------------
+                AUDIO QUALITY LABEL
+            ----------------------------------------- */}
+
+            <Text
+              style={styles.settingLabel}
+            >
+              Audio Record Quality
+            </Text>
+
+            {/* -----------------------------------------
+                DROPDOWN
+            ----------------------------------------- */}
+
+            <TouchableOpacity
+              style={styles.dropdown}
+              onPress={() =>
+                setDropdownVisible(
+                  !dropdownVisible
+                )
+              }
+            >
+
+              <Text
+                style={styles.dropdownText}
+              >
+                {audioQuality ===
+                'HIGH_QUALITY'
+                  ? 'High Quality'
+                  : 'Low Quality'}
+              </Text>
+
+              <Text
+                style={styles.dropdownArrow}
+              >
+                {dropdownVisible
+                  ? '▲'
+                  : '▼'}
+              </Text>
+
+            </TouchableOpacity>
+
+            {/* -----------------------------------------
+                DROPDOWN OPTIONS
+            ----------------------------------------- */}
+
+            {dropdownVisible && (
+              <View
+                style={styles.dropdownOptions}
+              >
+
+                {/* HIGH QUALITY */}
+
+                <TouchableOpacity
+                  style={[
+                    styles.dropdownOption,
+                    audioQuality ===
+                      'HIGH_QUALITY' &&
+                      styles.selectedOption,
+                  ]}
+                  onPress={() =>
+                    selectAudioQuality(
+                      'HIGH_QUALITY'
+                    )
+                  }
+                >
+
+                  <Text
+                    style={[
+                      styles.optionText,
+                      audioQuality ===
+                        'HIGH_QUALITY' &&
+                        styles.selectedOptionText,
+                    ]}
+                  >
+                    High Quality
+                  </Text>
+
+                  {audioQuality ===
+                    'HIGH_QUALITY' && (
+                    <Text
+                      style={
+                        styles.checkmark
+                      }
+                    >
+                      ✓
+                    </Text>
+                  )}
+
+                </TouchableOpacity>
+
+                {/* LOW QUALITY */}
+
+                <TouchableOpacity
+                  style={[
+                    styles.dropdownOption,
+                    audioQuality ===
+                      'LOW_QUALITY' &&
+                      styles.selectedOption,
+                  ]}
+                  onPress={() =>
+                    selectAudioQuality(
+                      'LOW_QUALITY'
+                    )
+                  }
+                >
+
+                  <Text
+                    style={[
+                      styles.optionText,
+                      audioQuality ===
+                        'LOW_QUALITY' &&
+                        styles.selectedOptionText,
+                    ]}
+                  >
+                    Low Quality
+                  </Text>
+
+                  {audioQuality ===
+                    'LOW_QUALITY' && (
+                    <Text
+                      style={
+                        styles.checkmark
+                      }
+                    >
+                      ✓
+                    </Text>
+                  )}
+
+                </TouchableOpacity>
+
+              </View>
+            )}
+
+            {/* -----------------------------------------
+                CLOSE BUTTON
+            ----------------------------------------- */}
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => {
+                setDropdownVisible(false);
+                setSettingsVisible(false);
+              }}
+            >
+              <Text
+                style={styles.buttonText}
+              >
+                CLOSE
+              </Text>
+            </TouchableOpacity>
+
+          </View>
+
+        </View>
+
+      </Modal>
+
     </View>
   );
 }
-
-// --------------------------------------------------
-// STYLES
-// --------------------------------------------------
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    marginBottom: 30,
-  },
-
-  timer: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-
-  status: {
-    fontSize: 18,
-    color: '#666',
-    marginBottom: 40,
-  },
-
-  recordButton: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: 'red',
-    justifyContent: 'center',
-    alignItems: 'center',
-
-    elevation: 5,
-  },
-
-  stopButton: {
-    backgroundColor: '#333',
-  },
-
-  buttonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-
-  playbackContainer: {
-    flexDirection: 'row',
-    marginTop: 40,
-    gap: 15,
-  },
-
-  playButton: {
-    backgroundColor: 'green',
-    paddingVertical: 15,
-    paddingHorizontal: 25,
-    borderRadius: 10,
-  },
-
-  pauseButton: {
-    backgroundColor: '#555',
-    paddingVertical: 15,
-    paddingHorizontal: 25,
-    borderRadius: 10,
-  },
-
-  infoContainer: {
-    marginTop: 40,
-    width: '100%',
-    padding: 15,
-    backgroundColor: 'white',
-    borderRadius: 10,
-  },
-
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-
-  uri: {
-    fontSize: 12,
-    color: '#666',
-  },
-});
